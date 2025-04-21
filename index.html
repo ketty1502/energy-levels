@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Weekly Tracker</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #0d1b2a;
+      color: aliceblue;
+      margin: 0;
+      padding: 1rem;
+    }
+
+    .light {
+      background-color: #f5f5f5;
+      color: #222;
+    }
+
+    input, button {
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      border-radius: 8px;
+      border: none;
+      font-size: 1rem;
+    }
+
+    button {
+      background-color: #0077b6;
+      color: white;
+      cursor: pointer;
+    }
+
+    #tableContainer {
+      overflow-x: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 1rem;
+      width: 100%;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.5rem;
+      text-align: center;
+      min-width: 70px;
+    }
+
+    td input {
+      width: 100%;
+      padding: 0.3rem;
+      text-align: center;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box; /* Ensure input fits inside the cell */
+    }
+
+    .theme-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+
+    #calendar {
+      display: flex;
+      align-items: center;
+      margin-top: 1rem;
+    }
+
+    #calendar input {
+      margin-left: 1rem;
+      padding: 0.5rem;
+      border-radius: 8px;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="theme-toggle">
+    <button id="toggleTheme">Toggle Theme</button>
+  </div>
+
+  <div id="auth">
+    <h2>Login / Sign Up</h2>
+    <input type="text" id="username" placeholder="Username" />
+    <input type="password" id="password" placeholder="Password" />
+    <br>
+    <button onclick="login()">Login</button>
+    <button onclick="signup()">Sign Up</button>
+    <p id="authMsg"></p>
+  </div>
+
+  <div id="tracker" style="display:none;">
+    <h2>Weekly Time Tracker</h2>
+    
+    <!-- Calendar for date selection -->
+    <div id="calendar">
+      <label for="dateInput">Select Date:</label>
+      <input type="date" id="dateInput" />
+    </div>
+
+    <div id="tableContainer"></div>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+  apiKey: "AIzaSyAtBWSNmxCuqUJ_-WJ38YFCGf6brgxhaJ8",
+  authDomain: "daily-energy-5a4a3.firebaseapp.com",
+  databaseURL: "https://daily-energy-5a4a3-default-rtdb.firebaseio.com",
+  projectId: "daily-energy-5a4a3",
+  storageBucket: "daily-energy-5a4a3.firebasestorage.app",
+  messagingSenderId: "4423706658",
+  appId: "1:4423706658:web:dae60b4dd7bca25e78827b"
+};
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const timeBlocks = [
+      "7-9am", "9-11am", "11am-1pm", "1-3pm", "3-5pm",
+      "5-7pm", "7-9pm", "9-11pm", "11pm-1am"
+    ];
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    let currentUser = null;
+    let selectedDate = null;
+
+    function login() {
+      const user = document.getElementById("username").value.trim();
+      const pass = document.getElementById("password").value;
+      if (!user || !pass) return showMessage("Please enter username and password.");
+
+      db.ref("users/" + user + "/password").once("value", snapshot => {
+        if (!snapshot.exists()) {
+          showMessage("User not found. Try signing up.");
+        } else if (snapshot.val() === pass) {
+          currentUser = user;
+          showTracker();
+        } else {
+          showMessage("Incorrect password.");
+        }
+      });
+    }
+
+    function signup() {
+      const user = document.getElementById("username").value.trim();
+      const pass = document.getElementById("password").value;
+      if (!user || !pass) return showMessage("Please enter username and password.");
+
+      db.ref("users/" + user).once("value", snapshot => {
+        if (snapshot.exists()) {
+          showMessage("User already exists. Please login.");
+        } else {
+          db.ref("users/" + user).set({ password: pass });
+          currentUser = user;
+          showTracker();
+        }
+      });
+    }
+
+    function showMessage(msg) {
+      document.getElementById("authMsg").textContent = msg;
+    }
+
+    function logout() {
+      currentUser = null;
+      document.getElementById("auth").style.display = "block";
+      document.getElementById("tracker").style.display = "none";
+    }
+
+    function showTracker() {
+      document.getElementById("auth").style.display = "none";
+      document.getElementById("tracker").style.display = "block";
+      buildTable();
+    }
+
+    function buildTable() {
+      const container = document.getElementById("tableContainer");
+      let html = "<table><thead><tr><th>Time\\Day</th>";
+
+      for (let day of days) html += `<th>${day}</th>`;
+      html += "</tr></thead><tbody>";
+
+      for (let i = 0; i < timeBlocks.length; i++) {
+        html += `<tr><th>${timeBlocks[i]}</th>`;
+        for (let j = 0; j < days.length; j++) {
+          html += `<td><input type="text" data-row="${i}" data-col="${j}" /></td>`;
+        }
+        html += `</tr>`;
+      }
+
+      html += "</tbody></table>";
+      container.innerHTML = html;
+
+      loadData();
+      addInputListeners();
+    }
+
+    function addInputListeners() {
+      document.querySelectorAll("td input").forEach(input => {
+        input.addEventListener("input", () => {
+          const row = input.dataset.row;
+          const col = input.dataset.col;
+          const value = input.value;
+          if (selectedDate) {
+            db.ref(`users/${currentUser}/data/${selectedDate}/${row}/${col}`).set(value);
+          }
+        });
+      });
+    }
+
+    function loadData() {
+      if (!selectedDate) return;
+
+      db.ref(`users/${currentUser}/data/${selectedDate}`).once("value", snapshot => {
+        const data = snapshot.val() || {};
+        for (let i = 0; i < timeBlocks.length; i++) {
+          for (let j = 0; j < days.length; j++) {
+            const val = data[i]?.[j] ?? "";
+            document.querySelector(`input[data-row="${i}"][data-col="${j}"]`).value = val;
+          }
+        }
+      });
+    }
+
+    document.getElementById("toggleTheme").addEventListener("click", () => {
+      document.body.classList.toggle("light");
+    });
+
+    // Calendar selection logic
+    document.getElementById("dateInput").addEventListener("change", (event) => {
+      selectedDate = event.target.value;
+      loadData();
+    });
+  </script>
+</body>
+</html>
